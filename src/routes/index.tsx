@@ -220,7 +220,14 @@ function Index() {
                   <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="truncate">{d.file_name}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      {d.status === "processing" || d.status === "uploaded" ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : d.status === "ready" ? (
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                      ) : d.status === "error" ? (
+                        <AlertCircle className="h-3 w-3 text-destructive" />
+                      ) : null}
                       {(d.size_bytes / 1024).toFixed(0)} KB · {d.status}
                     </div>
                   </div>
