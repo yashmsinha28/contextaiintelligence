@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ingestDocument } from "@/lib/ingest.functions";
+import { chatWithDocuments } from "@/lib/chat.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({ component: Index });
@@ -34,8 +35,10 @@ function Index() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chat = useServerFn(chatWithDocuments);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -139,18 +142,24 @@ function Index() {
     addFiles(e.dataTransfer.files);
   };
 
-  const send = () => {
-    if (!input.trim()) return;
-    const userMsg: Msg = { role: "user", content: input };
-    setMessages((m) => [
-      ...m,
-      userMsg,
-      {
-        role: "assistant",
-        content: "RAG pipeline coming in Phase 5 — I'll answer using your uploaded documents.",
-      },
-    ]);
+  const send = async () => {
+    const question = input.trim();
+    if (!question || thinking) return;
+    const userMsg: Msg = { role: "user", content: question };
+    const history = messages.slice(-6);
+    setMessages((m) => [...m, userMsg]);
     setInput("");
+    setThinking(true);
+    try {
+      const res = await chat({ data: { question, history } });
+      setMessages((m) => [...m, { role: "assistant", content: res.answer || "(no answer)" }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Chat failed";
+      toast.error(msg);
+      setMessages((m) => [...m, { role: "assistant", content: `Error: ${msg}` }]);
+    } finally {
+      setThinking(false);
+    }
   };
 
   if (loading || !user) {
@@ -252,20 +261,29 @@ function Index() {
                 Upload a document and start asking questions.
               </div>
             ) : (
-              messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                >
+              <>
+                {messages.map((m, i) => (
                   <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-                      m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
-                    }`}
+                    key={i}
+                    className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
                   >
-                    {m.content}
+                    <div
+                      className={`max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${
+                        m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                      }`}
+                    >
+                      {m.content}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+                {thinking && (
+                  <div className="flex justify-start">
+                    <div className="bg-muted rounded-lg px-4 py-2 text-sm flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <form
@@ -279,9 +297,10 @@ function Index() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question about your documents..."
+              disabled={thinking}
             />
-            <Button type="submit" size="icon">
-              <Send className="h-4 w-4" />
+            <Button type="submit" size="icon" disabled={thinking || !input.trim()}>
+              {thinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </form>
         </section>
