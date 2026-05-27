@@ -60,15 +60,17 @@ function Index() {
     if (user) fetchDocs();
   }, [user, fetchDocs]);
 
-  const uploadOne = async (file: File) => {
-    if (!user) return;
+  const ingest = useServerFn(ingestDocument);
+
+  const uploadOne = async (file: File): Promise<string | null> => {
+    if (!user) return null;
     if (!ACCEPTED.includes(file.type) && !file.name.endsWith(".md")) {
       toast.error(`${file.name}: unsupported type`);
-      return;
+      return null;
     }
     if (file.size > MAX_BYTES) {
       toast.error(`${file.name}: exceeds 20 MB`);
-      return;
+      return null;
     }
     const path = `${user.id}/${crypto.randomUUID()}-${file.name}`;
     const { error: upErr } = await supabase.storage
@@ -76,22 +78,27 @@ function Index() {
       .upload(path, file, { contentType: file.type || "application/octet-stream" });
     if (upErr) {
       toast.error(`${file.name}: ${upErr.message}`);
-      return;
+      return null;
     }
-    const { error: dbErr } = await supabase.from("documents").insert({
-      user_id: user.id,
-      file_name: file.name,
-      mime_type: file.type || "application/octet-stream",
-      size_bytes: file.size,
-      storage_path: path,
-      status: "uploaded",
-    });
-    if (dbErr) {
+    const { data: row, error: dbErr } = await supabase
+      .from("documents")
+      .insert({
+        user_id: user.id,
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        size_bytes: file.size,
+        storage_path: path,
+        status: "uploaded",
+      })
+      .select("id")
+      .single();
+    if (dbErr || !row) {
       await supabase.storage.from("documents").remove([path]);
-      toast.error(`${file.name}: ${dbErr.message}`);
-      return;
+      toast.error(`${file.name}: ${dbErr?.message ?? "insert failed"}`);
+      return null;
     }
     toast.success(`Uploaded ${file.name}`);
+    return row.id as string;
   };
 
   const addFiles = useCallback(
@@ -99,11 +106,22 @@ function Index() {
       const arr = Array.from(list);
       if (arr.length === 0) return;
       setUploading(true);
-      for (const f of arr) await uploadOne(f);
+      const ids: string[] = [];
+      for (const f of arr) {
+        const id = await uploadOne(f);
+        if (id) ids.push(id);
+      }
       setUploading(false);
       fetchDocs();
+      // Kick off ingestion in parallel (don't block UI)
+      for (const id of ids) {
+        ingest({ data: { documentId: id } })
+          .then((r) => toast.success(`Indexed ${r.chunks} chunks`))
+          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Ingestion failed"))
+          .finally(() => fetchDocs());
+      }
     },
-    [user, fetchDocs] // eslint-disable-line react-hooks/exhaustive-deps
+    [user, fetchDocs, ingest] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const removeDoc = async (doc: Doc) => {
