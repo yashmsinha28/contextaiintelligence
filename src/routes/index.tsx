@@ -1,11 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Upload, FileText, Send, LogOut, Loader2, Trash2 } from "lucide-react";
+import { Upload, FileText, Send, LogOut, Loader2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { ingestDocument } from "@/lib/ingest.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({ component: Index });
