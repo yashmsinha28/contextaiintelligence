@@ -10,20 +10,15 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  MessageSquare,
-  FolderUp,
+  Plus,
+  Paperclip,
+  Settings,
+  PanelLeftClose,
+  PanelLeft,
+  CloudUpload,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ingestDocument } from "@/lib/ingest.functions";
@@ -41,7 +36,6 @@ type Doc = {
   storage_path: string;
   created_at: string;
 };
-type View = "upload" | "chat";
 
 const ACCEPTED = ["application/pdf", "text/plain", "text/markdown"];
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -49,15 +43,16 @@ const MAX_BYTES = 20 * 1024 * 1024;
 function Index() {
   const navigate = useNavigate();
   const { user, loading, signOut } = useAuth();
-  const [view, setView] = useState<View>("upload");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [loadingDocs, setLoadingDocs] = useState(true);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const attachRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const chat = useServerFn(chatWithDocuments);
   const ingest = useServerFn(ingestDocument);
@@ -68,7 +63,7 @@ function Index() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, thinking]);
 
   const fetchDocs = useCallback(async () => {
     if (!user) return;
@@ -78,7 +73,6 @@ function Index() {
       .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
     else setDocs(data ?? []);
-    setLoadingDocs(false);
   }, [user]);
 
   useEffect(() => {
@@ -136,10 +130,7 @@ function Index() {
       }
       setUploading(false);
       fetchDocs();
-      if (ids.length > 0) {
-        toast.message("Switching to chat — your files are being indexed.");
-        setView("chat");
-      }
+      if (ids.length > 0 && !activeDocId) setActiveDocId(ids[0]);
       for (const id of ids) {
         ingest({ data: { documentId: id } })
           .then((r) => toast.success(`Indexed ${r.chunks} chunks`))
@@ -147,14 +138,14 @@ function Index() {
           .finally(() => fetchDocs());
       }
     },
-    [user, fetchDocs, ingest] // eslint-disable-line react-hooks/exhaustive-deps
+    [user, fetchDocs, ingest, activeDocId] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const removeDoc = async (doc: Doc) => {
-    const { error: sErr } = await supabase.storage.from("documents").remove([doc.storage_path]);
-    if (sErr) return toast.error(sErr.message);
-    const { error: dErr } = await supabase.from("documents").delete().eq("id", doc.id);
-    if (dErr) return toast.error(dErr.message);
+    await supabase.storage.from("documents").remove([doc.storage_path]);
+    const { error } = await supabase.from("documents").delete().eq("id", doc.id);
+    if (error) return toast.error(error.message);
+    if (activeDocId === doc.id) setActiveDocId(null);
     toast.success("Removed");
     fetchDocs();
   };
@@ -185,67 +176,176 @@ function Index() {
     }
   };
 
+  const newChat = () => {
+    setMessages([]);
+    setActiveDocId(null);
+  };
+
   if (loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  const readyCount = docs.filter((d) => d.status === "ready").length;
+  const hasReady = docs.some((d) => d.status === "ready");
+  const showChat = messages.length > 0 || activeDocId !== null;
 
   return (
-    <div className="min-h-screen bg-[var(--gradient-subtle)] flex flex-col">
-      <header className="border-b bg-background/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="rounded-lg bg-[var(--gradient-hero)] p-1.5 text-primary-foreground">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold leading-tight">RAG Assistant</h1>
-              <p className="text-xs text-muted-foreground leading-tight">{user.email}</p>
-            </div>
+    <div className="h-screen w-full flex bg-[var(--gradient-subtle)] text-foreground overflow-hidden">
+      {/* Sidebar */}
+      <aside
+        className={`${
+          sidebarOpen ? "w-72" : "w-0 md:w-16"
+        } shrink-0 transition-all duration-300 border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl flex flex-col overflow-hidden`}
+      >
+        <div className="h-14 flex items-center gap-2 px-3 border-b border-sidebar-border shrink-0">
+          <div className="rounded-lg bg-[var(--gradient-hero)] p-1.5 text-primary-foreground shrink-0">
+            <Sparkles className="h-4 w-4" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <Select value={view} onValueChange={(v) => setView(v as View)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="upload">
-                  <span className="flex items-center gap-2">
-                    <FolderUp className="h-4 w-4" /> File Upload
-                  </span>
-                </SelectItem>
-                <SelectItem value="chat">
-                  <span className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4" /> Chat
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="ghost" size="sm" onClick={signOut}>
-              <LogOut className="h-4 w-4 mr-2" /> Sign out
-            </Button>
-          </div>
+          {sidebarOpen && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">Context AI</p>
+              <p className="text-[10px] text-muted-foreground truncate">Cloud Document Intelligence</p>
+            </div>
+          )}
         </div>
-      </header>
 
-      <main className="flex-1 w-full max-w-6xl mx-auto p-6">
-        {view === "upload" ? (
-          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">Upload documents</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Drop files to index them. When ready, jump to chat and ask anything about their content.
+        <div className="p-3">
+          <Button
+            onClick={newChat}
+            className={`w-full justify-start gap-2 rounded-xl ${!sidebarOpen && "md:px-0 md:justify-center"}`}
+            variant="outline"
+          >
+            <Plus className="h-4 w-4 shrink-0" />
+            {sidebarOpen && <span>New Chat</span>}
+          </Button>
+        </div>
+
+        {sidebarOpen && (
+          <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+            Recent documents
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+          {docs.length === 0 && sidebarOpen && (
+            <p className="text-xs text-muted-foreground px-2 py-4 text-center">No documents yet.</p>
+          )}
+          {docs.map((d) => {
+            const active = activeDocId === d.id;
+            return (
+              <div
+                key={d.id}
+                onClick={() => {
+                  setActiveDocId(d.id);
+                }}
+                className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors ${
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "hover:bg-sidebar-accent/60 text-sidebar-foreground/80"
+                }`}
+                title={d.file_name}
+              >
+                <FileText className="h-4 w-4 shrink-0 text-primary/80" />
+                {sidebarOpen && (
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate">{d.file_name}</div>
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        {d.status === "ready" ? (
+                          <CheckCircle2 className="h-2.5 w-2.5 text-emerald-400" />
+                        ) : d.status === "error" ? (
+                          <AlertCircle className="h-2.5 w-2.5 text-destructive" />
+                        ) : (
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                        )}
+                        {d.status}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeDoc(d);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="border-t border-sidebar-border p-3 flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full bg-[var(--gradient-hero)] flex items-center justify-center text-xs font-semibold text-primary-foreground shrink-0">
+            {user.email?.[0]?.toUpperCase() ?? "U"}
+          </div>
+          {sidebarOpen && (
+            <>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate">{user.email}</p>
+                <p className="text-[10px] text-muted-foreground">Signed in</p>
+              </div>
+              <button
+                onClick={signOut}
+                className="p-1.5 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition"
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+              <button
+                className="p-1.5 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition"
+                title="Settings"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            </>
+          )}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 shrink-0 border-b border-border bg-background/40 backdrop-blur-xl flex items-center px-4 gap-3">
+          <button
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition"
+          >
+            {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm font-medium truncate">
+              {showChat
+                ? docs.find((d) => d.id === activeDocId)?.file_name ?? "New Chat"
+                : "Welcome back"}
+            </h1>
+          </div>
+          {hasReady && (
+            <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-muted-foreground px-2.5 py-1 rounded-full border border-border bg-card/60">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              {docs.filter((d) => d.status === "ready").length} indexed
+            </div>
+          )}
+        </header>
+
+        {!showChat ? (
+          /* Empty state — upload zone */
+          <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
+            <div className="w-full max-w-xl">
+              <div className="text-center mb-6">
+                <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+                  Context-Aware Document Intelligence
+                </h2>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Upload a secure document to start querying with AI.
                 </p>
               </div>
 
-              <Card
+              <div
                 onDragOver={(e) => {
                   e.preventDefault();
                   setDragOver(true);
@@ -253,21 +353,25 @@ function Index() {
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
                 onClick={() => fileRef.current?.click()}
-                className={`p-12 border-2 border-dashed cursor-pointer transition-all text-center shadow-[var(--shadow-elegant)] ${
-                  dragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-border hover:border-primary/50"
+                className={`rounded-2xl border-2 border-dashed cursor-pointer transition-all p-10 md:p-14 text-center backdrop-blur-md ${
+                  dragOver
+                    ? "border-primary bg-primary/5 scale-[1.01]"
+                    : "border-border hover:border-primary/50 bg-card/40"
                 }`}
               >
                 {uploading ? (
                   <Loader2 className="h-12 w-12 mx-auto text-primary mb-4 animate-spin" />
                 ) : (
-                  <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-[var(--gradient-hero)] text-primary-foreground">
-                    <Upload className="h-7 w-7" />
+                  <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--gradient-hero)] text-primary-foreground shadow-[var(--shadow-elegant)]">
+                    <CloudUpload className="h-8 w-8" />
                   </div>
                 )}
-                <p className="text-lg font-semibold">
-                  {uploading ? "Uploading…" : "Drop files or click to upload"}
+                <p className="text-base font-medium">
+                  {uploading ? "Uploading…" : "Drop a file or click to upload"}
                 </p>
-                <p className="text-sm text-muted-foreground mt-2">PDF, TXT, MD · up to 20 MB</p>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  PDF, TXT, MD · encrypted at rest · up to 20 MB
+                </p>
                 <input
                   ref={fileRef}
                   type="file"
@@ -276,136 +380,129 @@ function Index() {
                   className="hidden"
                   onChange={(e) => e.target.files && addFiles(e.target.files)}
                 />
-              </Card>
+              </div>
 
-              {readyCount > 0 && (
-                <Button onClick={() => setView("chat")} className="w-full sm:w-auto" size="lg">
-                  <MessageSquare className="h-4 w-4 mr-2" />
-                  Continue to chat ({readyCount} ready)
-                </Button>
+              {hasReady && (
+                <div className="mt-4 text-center">
+                  <button
+                    onClick={() => setActiveDocId(docs.find((d) => d.status === "ready")?.id ?? null)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Or continue chatting with an existing document →
+                  </button>
+                </div>
               )}
             </div>
-
-            <Card className="p-4 h-fit">
-              <h3 className="font-medium text-sm mb-3">Your documents</h3>
-              <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
-                {loadingDocs ? (
-                  <p className="text-xs text-muted-foreground px-2">Loading…</p>
-                ) : docs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground px-2 py-4 text-center">
-                    No documents yet.
-                  </p>
-                ) : (
-                  docs.map((d) => (
-                    <div
-                      key={d.id}
-                      className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/50 group"
-                    >
-                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate text-xs font-medium">{d.file_name}</div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          {d.status === "processing" || d.status === "uploaded" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : d.status === "ready" ? (
-                            <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                          ) : d.status === "error" ? (
-                            <AlertCircle className="h-3 w-3 text-destructive" />
-                          ) : null}
-                          {(d.size_bytes / 1024).toFixed(0)} KB · {d.status}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100"
-                        onClick={() => removeDoc(d)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </Card>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-end justify-between flex-wrap gap-2">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">Chat with your documents</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {readyCount > 0
-                    ? `Ask anything — ${readyCount} document${readyCount === 1 ? "" : "s"} indexed.`
-                    : "Upload documents first to get grounded answers."}
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setView("upload")}>
-                <FolderUp className="h-4 w-4 mr-2" /> Upload more
-              </Button>
-            </div>
-
-            <Card className="flex flex-col overflow-hidden shadow-[var(--shadow-elegant)] h-[calc(100vh-260px)] min-h-[460px]">
-              <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+          /* Chat view */
+          <>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto w-full px-4 md:px-6 py-6 space-y-6">
                 {messages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-sm text-muted-foreground gap-3">
-                    <div className="rounded-full bg-[var(--gradient-hero)] p-3 text-primary-foreground">
-                      <MessageSquare className="h-6 w-6" />
+                  <div className="text-center py-16">
+                    <div className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--gradient-hero)] text-primary-foreground">
+                      <Sparkles className="h-5 w-5" />
                     </div>
-                    <div>
-                      <p className="font-medium text-foreground">Ready when you are</p>
-                      <p>Try: "Summarize this document" or "What are the key points?"</p>
-                    </div>
+                    <p className="font-medium">Ask anything about your documents</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Try: "Summarize this" or "What are the key takeaways?"
+                    </p>
                   </div>
                 ) : (
-                  <>
-                    {messages.map((m, i) => (
-                      <div
-                        key={i}
-                        className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                            m.role === "user"
-                              ? "bg-primary text-primary-foreground rounded-br-sm"
-                              : "bg-muted rounded-bl-sm"
-                          }`}
-                        >
+                  messages.map((m, i) =>
+                    m.role === "user" ? (
+                      <div key={i} className="flex justify-end">
+                        <div className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm whitespace-pre-wrap bg-primary/15 border border-primary/25 text-foreground">
                           {m.content}
                         </div>
                       </div>
-                    ))}
-                    {thinking && (
-                      <div className="flex justify-start">
-                        <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm flex items-center gap-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                    ) : (
+                      <div key={i} className="flex gap-3">
+                        <div className="h-7 w-7 shrink-0 rounded-lg bg-[var(--gradient-hero)] flex items-center justify-center text-primary-foreground">
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 text-sm leading-relaxed whitespace-pre-wrap pt-0.5">
+                          {m.content}
                         </div>
                       </div>
-                    )}
-                  </>
+                    )
+                  )
+                )}
+                {thinking && (
+                  <div className="flex gap-3">
+                    <div className="h-7 w-7 shrink-0 rounded-lg bg-[var(--gradient-hero)] flex items-center justify-center text-primary-foreground">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                    </div>
+                  </div>
                 )}
               </div>
+            </div>
+
+            {/* Sticky input */}
+            <div className="shrink-0 border-t border-border bg-background/60 backdrop-blur-xl">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   send();
                 }}
-                className="border-t p-3 flex gap-2 bg-background"
+                className="max-w-3xl mx-auto w-full px-4 md:px-6 py-3"
               >
-                <Input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask a question about your documents..."
-                  disabled={thinking}
-                />
-                <Button type="submit" size="icon" disabled={thinking || !input.trim()}>
-                  {thinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
+                <div className="flex items-end gap-2 rounded-2xl border border-border bg-card/60 backdrop-blur p-2 shadow-[var(--shadow-elegant)] focus-within:border-primary/60 transition">
+                  <button
+                    type="button"
+                    onClick={() => attachRef.current?.click()}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition"
+                    title="Attach file"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                  <input
+                    ref={attachRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.txt,.md,application/pdf,text/plain"
+                    className="hidden"
+                    onChange={(e) => e.target.files && addFiles(e.target.files)}
+                  />
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        send();
+                      }
+                    }}
+                    placeholder="Ask anything about your documents…"
+                    rows={1}
+                    disabled={thinking}
+                    className="flex-1 resize-none bg-transparent outline-none text-sm py-2 px-1 placeholder:text-muted-foreground max-h-40"
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={thinking || !input.trim()}
+                    className="rounded-xl shrink-0"
+                  >
+                    {thinking ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+                  Answers are grounded in your uploaded documents.
+                </p>
               </form>
-            </Card>
-          </div>
+            </div>
+          </>
         )}
-      </main>
+      </div>
     </div>
   );
 }
