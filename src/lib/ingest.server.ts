@@ -1,8 +1,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { embedBatch } from "./embeddings.server";
 
-const EMBED_MODEL = "openai/text-embedding-3-small"; // 1536 dims
-const EMBED_URL = "https://ai.gateway.lovable.dev/v1/embeddings";
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 200;
 const EMBED_BATCH = 16;
@@ -49,31 +48,6 @@ function chunkText(text: string): string[] {
     i += Math.max(1, slice.length - CHUNK_OVERLAP);
   }
   return chunks;
-}
-
-async function embedBatch(inputs: string[]): Promise<number[][]> {
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) throw new Error("LOVABLE_API_KEY is not configured");
-  const res = await fetch(EMBED_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model: EMBED_MODEL, input: inputs }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Embedding failed [${res.status}]: ${body}`);
-  }
-  const json = (await res.json()) as { data: Array<{ embedding: number[]; index: number }> };
-  // ensure order
-  return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
-}
-
-export async function embedQuery(text: string): Promise<number[]> {
-  const [vec] = await embedBatch([text]);
-  return vec;
 }
 
 export async function processDocument(opts: {

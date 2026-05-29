@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { embedQuery } from "./ingest.server";
+import { embedQuery } from "./embeddings.server";
 
 const CHAT_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const CHAT_MODEL = "google/gemini-2.5-flash";
