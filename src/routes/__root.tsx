@@ -74,14 +74,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Context-Aware Cloud Document Intelligence" },
+      { name: "description", content: "Build a secure, full-stack RAG application with file upload, chat, and AI-powered document intelligence." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Context-Aware Cloud Document Intelligence" },
+      { property: "og:description", content: "Build a secure, full-stack RAG application with file upload, chat, and AI-powered document intelligence." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Context-Aware Cloud Document Intelligence" },
+      { name: "twitter:description", content: "Build a secure, full-stack RAG application with file upload, chat, and AI-powered document intelligence." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/34fe25d6-a28f-4b66-b741-b3eed5476108" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/34fe25d6-a28f-4b66-b741-b3eed5476108" },
     ],
     links: [
       {
