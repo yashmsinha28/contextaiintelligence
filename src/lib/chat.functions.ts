@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { answerQuestion } from "./chat.server";
 
 const messageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -18,6 +17,7 @@ export const chatWithDocuments = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { userId } = context;
+    const { answerQuestion } = await import("./chat.server");
     return answerQuestion({
       userId,
       question: data.question,
