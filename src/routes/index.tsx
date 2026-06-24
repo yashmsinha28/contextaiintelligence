@@ -71,7 +71,10 @@ function Index() {
       .from("documents")
       .select("id, file_name, size_bytes, status, storage_path, created_at")
       .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
+    if (error) {
+      console.error("[documents.fetch]", error);
+      toast.error("Could not load documents");
+    }
     else setDocs(data ?? []);
   }, [user]);
 
@@ -94,7 +97,8 @@ function Index() {
       .from("documents")
       .upload(path, file, { contentType: file.type || "application/octet-stream" });
     if (upErr) {
-      toast.error(`${file.name}: ${upErr.message}`);
+      console.error("[documents.upload]", upErr);
+      toast.error(`${file.name}: upload failed`);
       return null;
     }
     const { data: row, error: dbErr } = await supabase
@@ -111,7 +115,8 @@ function Index() {
       .single();
     if (dbErr || !row) {
       await supabase.storage.from("documents").remove([path]);
-      toast.error(`${file.name}: ${dbErr?.message ?? "insert failed"}`);
+      console.error("[documents.insert]", dbErr);
+      toast.error(`${file.name}: could not be saved`);
       return null;
     }
     toast.success(`Uploaded ${file.name}`);
@@ -134,7 +139,10 @@ function Index() {
       for (const id of ids) {
         ingest({ data: { documentId: id } })
           .then((r) => toast.success(`Indexed ${r.chunks} chunks`))
-          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Ingestion failed"))
+          .catch((e: unknown) => {
+            console.error("[ingest]", e);
+            toast.error("Ingestion failed");
+          })
           .finally(() => fetchDocs());
       }
     },
@@ -144,7 +152,10 @@ function Index() {
   const removeDoc = async (doc: Doc) => {
     await supabase.storage.from("documents").remove([doc.storage_path]);
     const { error } = await supabase.from("documents").delete().eq("id", doc.id);
-    if (error) return toast.error(error.message);
+    if (error) {
+      console.error("[documents.delete]", error);
+      return toast.error("Could not remove document");
+    }
     if (activeDocId === doc.id) setActiveDocId(null);
     toast.success("Removed");
     fetchDocs();
@@ -168,9 +179,9 @@ function Index() {
       const res = await chat({ data: { question, history } });
       setMessages((m) => [...m, { role: "assistant", content: res.answer || "(no answer)" }]);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Chat failed";
-      toast.error(msg);
-      setMessages((m) => [...m, { role: "assistant", content: `Error: ${msg}` }]);
+      console.error("[chat]", e);
+      toast.error("Chat is temporarily unavailable");
+      setMessages((m) => [...m, { role: "assistant", content: "Sorry, I couldn't process that request. Please try again." }]);
     } finally {
       setThinking(false);
     }
