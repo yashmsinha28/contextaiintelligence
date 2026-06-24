@@ -64,7 +64,8 @@ export async function answerQuestion(opts: {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Chat completion failed [${res.status}]: ${body}`);
+    console.error(`[chat.completion] status=${res.status} body=${body}`);
+    throw new Error("Chat is temporarily unavailable");
   }
 
   const json = (await res.json()) as {

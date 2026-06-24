@@ -14,7 +14,8 @@ export async function embedBatch(inputs: string[]): Promise<number[][]> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Embedding failed [${res.status}]: ${body}`);
+    console.error(`[embeddings] status=${res.status} body=${body}`);
+    throw new Error("Embedding service is temporarily unavailable");
   }
   const json = (await res.json()) as { data: Array<{ embedding: number[]; index: number }> };
   return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
